@@ -111,5 +111,6 @@ Once you have your configuration file run the exporter.  This assumes the config
 ```shell
 python weather-exporter.py --port 8001 --config config.yaml
 ```
-
 ## Verify
+
+In your favorite browser look at the metrics endpoint.  If it's local, you can use http://localhost:8001
