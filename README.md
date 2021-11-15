@@ -106,11 +106,12 @@ This is your API key.
 
 ## Usage
 
-Once you have your configuration file run the exporter.  This assumes the configuration file is `config.yaml` but you can name it anything.
+Once you have your configuration file run the exporter.  This assumes the configuration file is `config.yaml` but you can name it anything.  Note that `*.yaml` files are ignored via `.gitignore`.  If you keep your configuration file in the same directory as the source please make sure you back it up or have a way to recreate it if it's lost.
 
 ```shell
 python weather-exporter.py --port 8001 --config config.yaml
 ```
+
 ## Verify
 
 In your favorite browser look at the metrics endpoint.  If it's local, you can use http://localhost:8001
