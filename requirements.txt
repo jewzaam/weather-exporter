@@ -1,0 +1,6 @@
+prometheus-client
+pyyaml
+argparse
+pyjson
+requests
+httpimport
