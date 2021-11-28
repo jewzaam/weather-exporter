@@ -359,7 +359,7 @@ if __name__ == '__main__':
 
     config = {}
     with open(args.config, 'r') as f:
-        config = yaml.load(f, Loader=yaml.FullLoader)
+        config = yaml.load(f)
     
     # start threads to watch each source
     threads = []
