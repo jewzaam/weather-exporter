@@ -1,0 +1,14 @@
+[Unit]
+Description=Weather Exporter Service
+Documentation=https://github.com/jewzaam/weather-exporter/
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=$USER
+Restart=on-failure
+WorkingDirectory=$REPO_BASE_DIR
+ExecStart=$PYTHON $REPO_BASE_DIR/src/py/weather-exporter.py --port $PORT --config $CONFIG
+
+[Install]
+WantedBy=multi-user.target

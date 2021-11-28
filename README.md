@@ -4,7 +4,30 @@ Export metrics based on configured weather sources.  Supported sources:
 * darksky
 * openweathermap
 
-## Setup
+# Setup
+
+## Dependencies
+
+Install:
+* python
+* pip
+* git
+
+## Clone Source
+
+```shell
+git clone https://github.com/jewzaam/weather-exporter
+```
+
+## Python requirements
+
+```shell
+pip install -r requirements.txt --user
+```
+
+## config.yaml
+
+You can name the file whatever you want, but this document assumes **config.yaml**.
 
 An example configuration is included here with some fields redacted.  Please supply your values for:
 * LATITUDE
@@ -67,7 +90,7 @@ openweathermap:
     precip_probability: 100
 ```
 
-### Configuration
+### Config Details
 
 * `location` - where you are in the world
   * `latitude` - your latitude
@@ -104,14 +127,32 @@ If you do have an account, login at https://darksky.net/dev/account and snag you
 
 This is your API key.
 
-## Usage
+# Installation
 
-Once you have your configuration file run the exporter.  This assumes the configuration file is `config.yaml` but you can name it anything.  Note that `*.yaml` files are ignored via `.gitignore`.  If you keep your configuration file in the same directory as the source please make sure you back it up or have a way to recreate it if it's lost.
+## Linux Service
+
+Install the service by setting up some env vars then copying the systemd template with those vars, start the service, and enable the service.
 
 ```shell
-python weather-exporter.py --port 8001 --config config.yaml
+export REPO_BASE_DIR=~/weather-exporter
+export PORT=8011
+export CONFIG=$REPO_BASE_DIR/config.yaml
+export PYTHON=$(which python)
+
+cat $REPO_BASE_DIR/src/systemd/weather-exporter.service | envsubst > /tmp/weather-exporter.service
+sudo mv /tmp/weather-exporter.service /etc/systemd/system/weather-exporter.service
+
+unset REPO_BASE_DIR
+unset PORT
+unset CONFIG
+unset PYTHON
+
+sudo systemctl daemon-reload
+sudo systemctl start weather-exporter.service
+sudo systemctl enable weather-exporter.service
 ```
 
-## Verify
+# Verify
 
-In your favorite browser look at the metrics endpoint.  If it's local, you can use http://localhost:8001
+## Metrics 
+Check the metrics are exported on the port you specified.
