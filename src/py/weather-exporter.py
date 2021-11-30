@@ -7,6 +7,7 @@ import yaml
 import re
 from threading import Thread
 import traceback
+import copy
 
 import httpimport
 
@@ -24,6 +25,12 @@ DEBUG=True
 def debug(message):
     if DEBUG:
         print("DEBUG: {}".format(message))
+
+def merge_labels(l1, l2):
+    # dict.update is doing something weird so created this to ensure a deep copy
+    output = copy.deepcopy(l1)
+    output.update(l2)
+    return output
 
 def watch_openweathermap(source, config):
     global metric_metadata_cache
@@ -55,15 +62,13 @@ def watch_openweathermap(source, config):
 
                 if 'current' in data:
                     l={"when": "now"}
-                    l.update(owm_labels)
                     weather = normalize_weather(data['current'], config[source]['key_mappings'], config[source]['key_multipliers'])
-                    metric_metadata += update_metrics(weather, l)
+                    metric_metadata += update_metrics(weather, merge_labels(owm_labels,l))
                 if 'hourly' in data and  len(data['hourly']) > 0:
                     for i in range(0,12):
                         l={"when": "+{}h".format(i+1)}
-                        l.update(owm_labels)
                         weather = normalize_weather(data['hourly'][i], config[source]['key_mappings'], config[source]['key_multipliers'])
-                        metric_metadata += update_metrics(weather, l)
+                        metric_metadata += update_metrics(weather, merge_labels(owm_labels,l))
 
                 # for any cached labels that were not processed, remove the metric
                 if source in metric_metadata_cache:
@@ -125,9 +130,8 @@ def watch_darksky(source, config):
                     currently_found=True
                     when="now"
                     l={"when": when}
-                    l.update(ds_labels)
                     weather = normalize_weather(data['currently'], config[source]['key_mappings'], config[source]['key_multipliers'])
-                    metric_metadata += update_metrics(weather, l)
+                    metric_metadata += update_metrics(weather, merge_labels(ds_labels,l))
 
                 if 'hourly' in data and 'data' in data['hourly'] and len(data['hourly']['data']) > 0:
                     start_index=0
@@ -149,10 +153,9 @@ def watch_darksky(source, config):
                             # everything else, future
                             when="+{}h".format(i-start_index)
                         l={"when": when}
-                        l.update(ds_labels)
                         # normalize the data
                         weather = normalize_weather(h, config[source]['key_mappings'], config[source]['key_multipliers'])
-                        metric_metadata += update_metrics(weather, l)
+                        metric_metadata += update_metrics(weather, merge_labels(ds_labels,l))
                         # increment counter!
                         i += 1
 
@@ -224,9 +227,8 @@ def update_metrics(weather, base_labels):
 
         if key=='temperature':
             l={"type": "current", "unit": "celsius"}
-            l.update(base_labels)
             try:
-                utility.set("weather_{}".format(key),value,l)
+                utility.set("weather_{}".format(key),value,merge_labels(base_labels,l))
             except Exception as e:
                 # well something went bad, print and continue.
                 print(repr(e))
@@ -235,9 +237,8 @@ def update_metrics(weather, base_labels):
         elif key=='feels_like':
             l={"type": "feels_like", "unit": "celsius"}
             key="temperature"
-            l.update(base_labels)
             try:
-                utility.set("weather_{}".format(key),value,l)
+                utility.set("weather_{}".format(key),value,merge_labels(base_labels,l))
             except Exception as e:
                 # well something went bad, print and continue.
                 print(repr(e))
@@ -245,9 +246,8 @@ def update_metrics(weather, base_labels):
                 pass
         elif key=='pressure':
             l={"unit": "millibars"}
-            l.update(base_labels)
             try:
-                utility.set("weather_{}".format(key),value,l)
+                utility.set("weather_{}".format(key),value,merge_labels(base_labels,l))
             except Exception as e:
                 # well something went bad, print and continue.
                 print(repr(e))
@@ -255,9 +255,8 @@ def update_metrics(weather, base_labels):
                 pass
         elif key=='humidity':
             l={"unit": "percent"}
-            l.update(base_labels)
             try:
-                utility.set("weather_{}".format(key),value,l)
+                utility.set("weather_{}".format(key),value,merge_labels(base_labels,l))
             except Exception as e:
                 # well something went bad, print and continue.
                 print(repr(e))
@@ -265,9 +264,8 @@ def update_metrics(weather, base_labels):
                 pass
         elif key=='dew_point':
             l={"unit": "celsius"}
-            l.update(base_labels)
             try:
-                utility.set("weather_{}".format(key),value,l)
+                utility.set("weather_{}".format(key),value,merge_labels(base_labels,l))
             except Exception as e:
                 # well something went bad, print and continue.
                 print(repr(e))
@@ -275,9 +273,8 @@ def update_metrics(weather, base_labels):
                 pass
         elif key=='visibility':
             l={"unit": "meters"}
-            l.update(base_labels)
             try:
-                utility.set("weather_{}".format(key),value,l)
+                utility.set("weather_{}".format(key),value,merge_labels(base_labels,l))
             except Exception as e:
                 # well something went bad, print and continue.
                 print(repr(e))
@@ -285,9 +282,8 @@ def update_metrics(weather, base_labels):
                 pass
         elif key=='clouds':
             l={"unit": "percent"}
-            l.update(base_labels)
             try:
-                utility.set("weather_{}".format(key),value,l)
+                utility.set("weather_{}".format(key),value,merge_labels(base_labels,l))
             except Exception as e:
                 # well something went bad, print and continue.
                 print(repr(e))
@@ -295,9 +291,8 @@ def update_metrics(weather, base_labels):
                 pass
         elif key=='time':
             l={"type": "current", "unit": "second"}
-            l.update(base_labels)
             try:
-                utility.set("weather_{}".format(key),int(value),l)
+                utility.set("weather_{}".format(key),int(value),merge_labels(base_labels,l))
             except Exception as e:
                 # well something went bad, print and continue.
                 print(repr(e))
@@ -305,9 +300,8 @@ def update_metrics(weather, base_labels):
                 pass
         elif key=='precip_probability':
             l={"unit": "percent"}
-            l.update(base_labels)
             try:
-                utility.set("weather_{}".format(key),value,l)
+                utility.set("weather_{}".format(key),value,merge_labels(base_labels,l))
             except Exception as e:
                 # well something went bad, print and continue.
                 print(repr(e))
@@ -315,9 +309,8 @@ def update_metrics(weather, base_labels):
                 pass
         elif key=='precip_intensity':
             l={"unit": "mm"}
-            l.update(base_labels)
             try:
-                utility.set("weather_{}".format(key),value,l)
+                utility.set("weather_{}".format(key),value,merge_labels(base_labels,l))
             except Exception as e:
                 # well something went bad, print and continue.
                 print(repr(e))
@@ -330,9 +323,8 @@ def update_metrics(weather, base_labels):
             if t=='direction':
                 unit="degree"
             l={"type": t, "unit": unit}
-            l.update(base_labels)
             try:
-                utility.set("weather_{}".format(key),value,l)
+                utility.set("weather_{}".format(key),value,merge_labels(base_labels,l))
             except Exception as e:
                 # well something went bad, print and continue.
                 print(repr(e))
