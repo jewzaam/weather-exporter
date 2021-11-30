@@ -33,7 +33,7 @@ def watch_openweathermap(source, config):
     api_key = config['openweathermap']['api_key']
 
     # create labels common to all metrics
-    global_labels={
+    owm_labels={
         "latitude": lat,
         "longitude": long,
         "source": source,
@@ -55,13 +55,13 @@ def watch_openweathermap(source, config):
 
                 if 'current' in data:
                     l={"when": "now"}
-                    l.update(global_labels)
+                    l.update(owm_labels)
                     weather = normalize_weather(data['current'], config[source]['key_mappings'], config[source]['key_multipliers'])
                     metric_metadata += update_metrics(weather, l)
                 if 'hourly' in data and  len(data['hourly']) > 0:
                     for i in range(0,12):
                         l={"when": "+{}h".format(i+1)}
-                        l.update(global_labels)
+                        l.update(owm_labels)
                         weather = normalize_weather(data['hourly'][i], config[source]['key_mappings'], config[source]['key_multipliers'])
                         metric_metadata += update_metrics(weather, l)
 
@@ -79,10 +79,10 @@ def watch_openweathermap(source, config):
                 # reset cache with what we just collected
                 metric_metadata_cache[source] = metric_metadata
 
-                utility.inc("weather_success_total", global_labels)
+                utility.inc("weather_success_total", owm_labels)
         except Exception as e:
             # well something went bad
-            utility.inc("weather_error_total", global_labels)
+            utility.inc("weather_error_total", owm_labels)
             print(repr(e))
             traceback.print_exc()
             pass
@@ -99,7 +99,7 @@ def watch_darksky(source, config):
     api_key = config[source]['api_key']
 
     # create labels common to all metrics
-    global_labels={
+    ds_labels={
         "latitude": lat,
         "longitude": long,
         "source": source,
@@ -113,7 +113,7 @@ def watch_darksky(source, config):
 
             if response.status_code != 200 or response.text is None or response.text == '':
                 debug(response.text)
-                utility.inc("weather_error_total", global_labels)
+                utility.inc("weather_error_total", ds_labels)
             else:
                 data = json.loads(response.text)
 
@@ -125,7 +125,7 @@ def watch_darksky(source, config):
                     currently_found=True
                     when="now"
                     l={"when": when}
-                    l.update(global_labels)
+                    l.update(ds_labels)
                     weather = normalize_weather(data['currently'], config[source]['key_mappings'], config[source]['key_multipliers'])
                     metric_metadata += update_metrics(weather, l)
 
@@ -149,7 +149,7 @@ def watch_darksky(source, config):
                             # everything else, future
                             when="+{}h".format(i-start_index)
                         l={"when": when}
-                        l.update(global_labels)
+                        l.update(ds_labels)
                         # normalize the data
                         weather = normalize_weather(h, config[source]['key_mappings'], config[source]['key_multipliers'])
                         metric_metadata += update_metrics(weather, l)
@@ -170,10 +170,10 @@ def watch_darksky(source, config):
                 # reset cache with what we just collected
                 metric_metadata_cache[source] = metric_metadata
 
-                utility.inc("weather_success_total", global_labels)
+                utility.inc("weather_success_total", ds_labels)
         except Exception as e:
             # well something went bad
-            utility.inc("weather_error_total", global_labels)
+            utility.inc("weather_error_total", ds_labels)
             print(repr(e))
             traceback.print_exc()
             pass
@@ -208,7 +208,7 @@ def normalize_weather(raw, key_mappings, key_multipliers):
     return weather
 
 # update_metrics creates / updates metrics for normalized weather data and returns an array of [key,labels] processed
-def update_metrics(weather, global_labels):
+def update_metrics(weather, base_labels):
     output = []
 
     # process all the keys
@@ -224,7 +224,7 @@ def update_metrics(weather, global_labels):
 
         if key=='temperature':
             l={"type": "current", "unit": "celsius"}
-            l.update(global_labels)
+            l.update(base_labels)
             try:
                 utility.set("weather_{}".format(key),value,l)
             except Exception as e:
@@ -235,7 +235,7 @@ def update_metrics(weather, global_labels):
         elif key=='feels_like':
             l={"type": "feels_like", "unit": "celsius"}
             key="temperature"
-            l.update(global_labels)
+            l.update(base_labels)
             try:
                 utility.set("weather_{}".format(key),value,l)
             except Exception as e:
@@ -245,7 +245,7 @@ def update_metrics(weather, global_labels):
                 pass
         elif key=='pressure':
             l={"unit": "millibars"}
-            l.update(global_labels)
+            l.update(base_labels)
             try:
                 utility.set("weather_{}".format(key),value,l)
             except Exception as e:
@@ -255,7 +255,7 @@ def update_metrics(weather, global_labels):
                 pass
         elif key=='humidity':
             l={"unit": "percent"}
-            l.update(global_labels)
+            l.update(base_labels)
             try:
                 utility.set("weather_{}".format(key),value,l)
             except Exception as e:
@@ -265,7 +265,7 @@ def update_metrics(weather, global_labels):
                 pass
         elif key=='dew_point':
             l={"unit": "celsius"}
-            l.update(global_labels)
+            l.update(base_labels)
             try:
                 utility.set("weather_{}".format(key),value,l)
             except Exception as e:
@@ -275,7 +275,7 @@ def update_metrics(weather, global_labels):
                 pass
         elif key=='visibility':
             l={"unit": "meters"}
-            l.update(global_labels)
+            l.update(base_labels)
             try:
                 utility.set("weather_{}".format(key),value,l)
             except Exception as e:
@@ -285,7 +285,7 @@ def update_metrics(weather, global_labels):
                 pass
         elif key=='clouds':
             l={"unit": "percent"}
-            l.update(global_labels)
+            l.update(base_labels)
             try:
                 utility.set("weather_{}".format(key),value,l)
             except Exception as e:
@@ -295,7 +295,7 @@ def update_metrics(weather, global_labels):
                 pass
         elif key=='time':
             l={"type": "current", "unit": "second"}
-            l.update(global_labels)
+            l.update(base_labels)
             try:
                 utility.set("weather_{}".format(key),int(value),l)
             except Exception as e:
@@ -305,7 +305,7 @@ def update_metrics(weather, global_labels):
                 pass
         elif key=='precip_probability':
             l={"unit": "percent"}
-            l.update(global_labels)
+            l.update(base_labels)
             try:
                 utility.set("weather_{}".format(key),value,l)
             except Exception as e:
@@ -315,7 +315,7 @@ def update_metrics(weather, global_labels):
                 pass
         elif key=='precip_intensity':
             l={"unit": "mm"}
-            l.update(global_labels)
+            l.update(base_labels)
             try:
                 utility.set("weather_{}".format(key),value,l)
             except Exception as e:
@@ -330,7 +330,7 @@ def update_metrics(weather, global_labels):
             if t=='direction':
                 unit="degree"
             l={"type": t, "unit": unit}
-            l.update(global_labels)
+            l.update(base_labels)
             try:
                 utility.set("weather_{}".format(key),value,l)
             except Exception as e:
