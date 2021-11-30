@@ -365,7 +365,7 @@ if __name__ == '__main__':
     threads = []
     for source in config['sources']:
         watch_source = locals()["watch_{}".format(source)]
-        t = Thread(target=watch_source, args=(source, config), daemon=True)
+        t = Thread(target=watch_source, args=(source, config))
         t.start()
         threads.append(t)
 
