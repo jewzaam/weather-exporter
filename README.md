@@ -109,7 +109,6 @@ Source Configuration is generic, but the example above is tailored for the suppo
   * receive **dewPoint** from source and rename to **dew_point** for this exporter.
 * `key_multipliers` - used to convert a value so there is consistency across sources.  Uses the exporter key, not the source's key!
   * example: `precip_probability: 100` converts from a 0.0 to 1.0 scale to 0.0 to 100.0 scale
-  * exmaple: `"%Y-%m-%dT%H:%M:%S%z"` converts datetime string to seconds
 
 ### API Key: darksky
 

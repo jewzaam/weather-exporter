@@ -8,6 +8,7 @@ import re
 from threading import Thread
 import traceback
 import copy
+from datetime import date, timedelta
 
 import httpimport
 
@@ -79,15 +80,45 @@ def watch_openweathermap(source, config):
 
                 metric_metadata = []
 
+                now=time.time()
+                currently_found=False
                 if 'current' in data:
-                    l={"when": "now"}
+                    currently_found=True
+                    when="now"
+                    l={"when": when}
                     weather = normalize_weather(data['current'], config[source]['key_mappings'], config[source]['key_multipliers'])
                     metric_metadata += update_metrics(weather, merge_labels(owm_labels,l))
-                if 'hourly' in data and  len(data['hourly']) > 0:
-                    for i in range(0,12):
-                        l={"when": "+{}h".format(i+1)}
-                        weather = normalize_weather(data['hourly'][i], config[source]['key_mappings'], config[source]['key_multipliers'])
+
+                if 'hourly' in data and len(data['hourly']) > 0:
+                    start_index=0
+                    i=0
+                    max_hours=12
+                    while i <= start_index + max_hours:
+                        h=data['hourly'][i]
+                        when="+{}h".format(i-start_index)
+                        if not currently_found and h['dt'] < now and (now - h['dt'])/3600 > 0:
+                            # don't have a "now", this is in the past, isn't too old.  use it as "now"
+                            start_index=i
+                            when="now"
+                        elif currently_found and h['dt'] < now:
+                            # already have a "now" and this is in the past.  move along!
+                            debug("in the past: {}".format(i))
+                            start_index=i
+                            i += 1
+                            continue
+                            
+                        l={"when": when}
+                        # normalize the data
+                        weather = normalize_weather(h, config[source]['key_mappings'], config[source]['key_multipliers'])
                         metric_metadata += update_metrics(weather, merge_labels(owm_labels,l))
+                        # increment counter!
+                        i += 1
+
+                    # special case, grab +0h data.
+                    l={"when": "+0h"}
+                    # normalize the data
+                    weather = normalize_weather(data['hourly'][start_index], config[source]['key_mappings'], config[source]['key_multipliers'])
+                    metric_metadata += update_metrics(weather, merge_labels(owm_labels,l))
 
                 # for any cached labels that were not processed, remove the metric
                 if source in metric_metadata_cache:
@@ -180,6 +211,12 @@ def watch_darksky(source, config):
                         # increment counter!
                         i += 1
 
+                    # special case, grab +0h data.
+                    l={"when": "+0h"}
+                    # normalize the data
+                    weather = normalize_weather(data['hourly']['data'][start_index], config[source]['key_mappings'], config[source]['key_multipliers'])
+                    metric_metadata += update_metrics(weather, merge_labels(ds_labels,l))
+
                 # for any cached labels that were not processed, remove the metric
                 if source in metric_metadata_cache:
                     for mmc in metric_metadata_cache[source]:
@@ -225,14 +262,16 @@ def watch_visualcrossing(source, config):
     while not STOP_THREADS:
         try:
             debug("{} request".format(source))
-            response = requests.get("https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/weatherdata/forecast?contentType=json&aggregateHours=1&forecastDays=1&includeAstronomy=true&unitGroup=metric&key={}&locations={},{}".format(api_key,lat,long))
+            today = date.today()
+            tomorrow = today + timedelta(1)
+            response = requests.get("https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/{},{}/{}/{}?unitGroup=metric&key={}".format(lat,long,today,tomorrow,api_key))
             debug("{} response {}".format(source,str(response.status_code)))
 
             if response.status_code != 200 or response.text is None or response.text == '':
                 debug(response.text)
                 utility.inc("weather_error_total", ds_labels)
             else:
-                data = json.loads(response.text)["locations"]["{},{}".format(lat,long)]
+                data = json.loads(response.text)
 
                 metric_metadata = []
 
@@ -254,31 +293,37 @@ def watch_visualcrossing(source, config):
                     weather = normalize_weather(data['currentConditions'], config[source]['key_mappings'], config[source]['key_multipliers'])
                     metric_metadata += update_metrics(weather, merge_labels(ds_labels,l))
 
-                if 'values' in data and len(data['values']) > 0:
+                if 'days' in data and len(data['days']) > 0:
                     start_index=0
                     i=0
                     max_hours=12
+                    # we got 2 days of data, merge the hours into a single list
+                    hours = data['days'][0]['hours'] + data['days'][1]['hours']
                     while i <= start_index + max_hours:
-                        h=data['values'][i]
-                        when=""
-                        if not currently_found and h['datetime'] < now and (now - h['datetime'])/3600 > 0:
+                        h=hours[i]
+                        when="+{}h".format(i-start_index)
+                        if not currently_found and h['datetimeEpoch'] < now and (now - h['datetimeEpoch'])/3600 > 0:
                             # don't have a "now", this is in the past, isn't too old.  use it as "now"
                             start_index=i
                             when="now"
-                        elif currently_found and h['datetime'] < now:
+                        elif currently_found and h['datetimeEpoch'] < now:
                             # already have a "now" and this is in the past.  move along!
                             start_index=i
                             i += 1
                             continue
-                        else:
-                            # everything else, future
-                            when="+{}h".format(i-start_index)
+
                         l={"when": when}
                         # normalize the data
                         weather = normalize_weather(h, config[source]['key_mappings'], config[source]['key_multipliers'])
                         metric_metadata += update_metrics(weather, merge_labels(ds_labels,l))
                         # increment counter!
                         i += 1
+                    
+                    # special case, grab +0h data.
+                    l={"when": "+0h"}
+                    # normalize the data
+                    weather = normalize_weather(hours[start_index], config[source]['key_mappings'], config[source]['key_multipliers'])
+                    metric_metadata += update_metrics(weather, merge_labels(ds_labels,l))
 
                 # for any cached labels that were not processed, remove the metric
                 if source in metric_metadata_cache:
