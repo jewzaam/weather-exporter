@@ -8,7 +8,6 @@ import re
 from threading import Thread
 import traceback
 import copy
-from datetime import datetime
 
 import httpimport
 
@@ -332,11 +331,9 @@ def normalize_weather(raw, key_mappings, key_multipliers):
             if normalized_key in key_multipliers:
                 #debug("raw_key={}, raw_value={}, normalized_key={}, normalized_value={}, multiplier={}".format(raw_key,raw_value,normalized_key,normalized_value,key_multipliers[normalized_key]))
                 multiplier = key_multipliers[normalized_key]
-                if not isfloat(multiplier):
-                    # blindly assume it's a date conversion, shrug.  get in seconds
-                    normalized_value = datetime.strptime(normalized_value, multiplier).timestamp()
-                    #debug("datetime conversion: raw={}, normalized={}".format(raw_value,normalized_value))
-                else:
+                # originally was doing date string to second conversion but
+                # the differences in python versions and the fact it isn't used.. I am dropping it
+                if isfloat(multiplier):
                     normalized_value *= float(key_multipliers[normalized_key])
             
             weather[normalized_key] = normalized_value
@@ -424,28 +421,6 @@ def update_metrics(weather, base_labels):
                 pass
         elif key=='time':
             l={"type": "current", "unit": "second"}
-            try:
-                # don't use wrapper function 'metric_set'
-                utility.set("weather_{}".format(key),int(value),merge_labels(base_labels,l))
-            except Exception as e:
-                # well something went bad, print and continue.
-                print(repr(e))
-                traceback.print_exc()
-                pass
-        elif key=='sunrise' and "when" in base_labels and base_labels["when"] == "now":
-            key="time"
-            l={"type": "sunrise", "unit": "second"}
-            try:
-                # don't use wrapper function 'metric_set'
-                utility.set("weather_{}".format(key),int(value),merge_labels(base_labels,l))
-            except Exception as e:
-                # well something went bad, print and continue.
-                print(repr(e))
-                traceback.print_exc()
-                pass
-        elif key=='sunset' and "when" in base_labels and base_labels["when"] == "now":
-            key="time"
-            l={"type": "sunset", "unit": "second"}
             try:
                 # don't use wrapper function 'metric_set'
                 utility.set("weather_{}".format(key),int(value),merge_labels(base_labels,l))
