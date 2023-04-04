@@ -69,6 +69,7 @@ def watch_openweathermap(source, config):
     while not STOP_THREADS:
         try:
             debug("openweathermap request")
+            # https://openweathermap.org/api/one-call-api
             response = requests.get("http://api.openweathermap.org/data/2.5/onecall?appid={}&lat={}&lon={}&exclude=minutely,daily&units=metric".format(api_key,lat,long))
             debug("openweathermap response " + str(response.status_code))
 
