@@ -8,9 +8,7 @@ import re
 from threading import Thread
 import traceback
 import copy
-from datetime import date, timedelta, datetime
-
-import httpimport
+from datetime import datetime
 
 import utility
 
@@ -267,7 +265,7 @@ if __name__ == '__main__':
 
     config = {}
     with open(args.config, 'r') as f:
-        config = yaml.load(f)
+        config = yaml.safe_load(f)
 
     # Start up the server to expose the metrics.
     utility.metrics(config["metrics"]["port"])
