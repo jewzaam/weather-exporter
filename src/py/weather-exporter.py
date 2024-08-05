@@ -8,15 +8,12 @@ import re
 from threading import Thread
 import traceback
 import copy
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
 
 import httpimport
 
 with httpimport.github_repo('jewzaam', 'metrics-utility', 'utility', 'main'):
     import utility
-
-# I like dark sky but the API is going away at end of 2022. 
-# Until then I continue to use it!
 
 # cache metadata for metrics.  it's an array of tuples, each tuple being [string,dictionary] representing metric name and labels (no value)
 metric_metadata_cache = {}
@@ -28,14 +25,6 @@ STOP_THREADS=False
 def debug(message):
     if DEBUG:
         print("DEBUG: {}".format(message))
-
-# https://www.programiz.com/python-programming/examples/check-string-number
-def isfloat(num):
-    try:
-        float(num)
-        return True
-    except ValueError:
-        return False
 
 # wrapper to handle a few edge cases
 def metric_set(metric_name, metric_value, metric_labels):
@@ -52,74 +41,71 @@ def merge_labels(l1, l2):
     output.update(l2)
     return output
 
-def watch_openweathermap(source, config):
+def watch_weather_source(source, config):
     global metric_metadata_cache
 
     lat = config['location']['latitude']
     long = config['location']['longitude']
-    api_key = config['openweathermap']['api_key']
+    params=f"source={source}"
+    if "parameters" in config[source]:
+        for k, v in config[source]["parameters"].items():
+            params+=f"&{k}={v}"
 
     # create labels common to all metrics
-    owm_labels={
+    base_labels={
         "latitude": lat,
         "longitude": long,
         "source": source,
     }
 
+    host=config["service"]["host"]
+    port=config["service"]["port"]
+    base_url = f"http://{host}:{port}"
+
     while not STOP_THREADS:
         try:
-            debug("openweathermap request")
-            # https://openweathermap.org/api/one-call-api
-            response = requests.get("http://api.openweathermap.org/data/2.5/onecall?appid={}&lat={}&lon={}&exclude=minutely,daily&units=metric".format(api_key,lat,long))
-            debug("openweathermap response " + str(response.status_code))
+            debug(f"watch_weather_source request({params})")
+            url=f"{base_url}/forecast/{lat}/{long}?{params}"
+            response = requests.get(url)
+            debug(f"watch_weather_source response({params}) " + str(response.status_code))
 
             if response.status_code != 200 or response.text is None or response.text == '':
                 debug(response.text)
                 utility.inc("weather_error_total")
             else:
-                data = json.loads(response.text)
+                forecast = json.loads(response.text)
 
                 metric_metadata = []
 
                 now=time.time()
-                currently_found=False
-                if 'current' in data:
-                    currently_found=True
-                    when="now"
-                    l={"when": when}
-                    weather = normalize_weather(data['current'], config[source]['key_mappings'], config[source]['key_multipliers'])
-                    metric_metadata += update_metrics(weather, merge_labels(owm_labels,l))
+                found_now = False
 
-                if 'hourly' in data and len(data['hourly']) > 0:
-                    start_index=0
-                    i=0
+                if 'data' in forecast:
+                    i=1
                     max_hours=12
-                    while i <= start_index + max_hours:
-                        h=data['hourly'][i]
-                        when="+{}h".format(i-start_index)
-                        if not currently_found and h['dt'] < now and (now - h['dt'])/3600 > 0:
-                            # don't have a "now", this is in the past, isn't too old.  use it as "now"
-                            start_index=i
+                    when="now"
+                    for key in forecast["data"]:
+                        if i > max_hours:
+                            # got enough data, done
+                            break
+                        dt=datetime.fromisoformat(key.replace("Z", "+00:00")).timestamp()
+                        if not found_now and dt <= now and (now - dt)/3600 > 0:
+                            # this is in the past, isn't too old.  use it as "now"
                             when="now"
-                        elif currently_found and h['dt'] < now:
-                            # already have a "now" and this is in the past.  move along!
-                            debug("in the past: {}".format(i))
-                            start_index=i
-                            i += 1
-                            continue
-                            
-                        l={"when": when}
-                        # normalize the data
-                        weather = normalize_weather(h, config[source]['key_mappings'], config[source]['key_multipliers'])
-                        metric_metadata += update_metrics(weather, merge_labels(owm_labels,l))
-                        # increment counter!
-                        i += 1
+                            found_now=True
+                        elif found_now:
+                            # we have found "now" and can increment.
+                            when=f"+{i}h"
+                            i+=1
 
-                    # special case, grab +0h data.
-                    l={"when": "+0h"}
-                    # normalize the data
-                    weather = normalize_weather(data['hourly'][start_index], config[source]['key_mappings'], config[source]['key_multipliers'])
-                    metric_metadata += update_metrics(weather, merge_labels(owm_labels,l))
+                        datum=forecast["data"][key]
+
+                        # update metrics
+                        metric_metadata += update_metrics(datum, merge_labels(base_labels,{"when": when}))
+
+                        if when=="now":
+                            # special case, also create +0h data.
+                            metric_metadata += update_metrics(datum, merge_labels(base_labels,{"when": "+0h"}))
 
                 # for any cached labels that were not processed, remove the metric
                 if source in metric_metadata_cache:
@@ -135,10 +121,10 @@ def watch_openweathermap(source, config):
                 # reset cache with what we just collected
                 metric_metadata_cache[source] = metric_metadata
 
-                utility.inc("weather_success_total", owm_labels)
+                utility.inc("weather_success_total", base_labels)
         except Exception as e:
             # well something went bad
-            utility.inc("weather_error_total", owm_labels)
+            utility.inc("weather_error_total", base_labels)
             print(repr(e))
             traceback.print_exc()
             pass
@@ -149,260 +135,23 @@ def watch_openweathermap(source, config):
                 time.sleep(1)
 
 
-def watch_darksky(source, config):
-    global metric_metadata_cache
-
-    lat = config['location']['latitude']
-    long = config['location']['longitude']
-    api_key = config[source]['api_key']
-
-    # create labels common to all metrics
-    ds_labels={
-        "latitude": lat,
-        "longitude": long,
-        "source": source,
-    }
-
-    while not STOP_THREADS:
-        try:
-            debug("{} request".format(source))
-            response = requests.get("https://api.darksky.net/forecast/{}/{},{}?language=en&units=si&exclude=minutely,daily,alerts,flags&extend=hourly".format(api_key,lat,long))
-            debug("{} response {}".format(source,str(response.status_code)))
-
-            if response.status_code != 200 or response.text is None or response.text == '':
-                debug(response.text)
-                utility.inc("weather_error_total", ds_labels)
-            else:
-                data = json.loads(response.text)
-
-                metric_metadata = []
-
-                now=time.time()
-                currently_found=False
-                if 'currently' in data:
-                    currently_found=True
-                    when="now"
-                    l={"when": when}
-                    weather = normalize_weather(data['currently'], config[source]['key_mappings'], config[source]['key_multipliers'])
-                    metric_metadata += update_metrics(weather, merge_labels(ds_labels,l))
-
-                if 'hourly' in data and 'data' in data['hourly'] and len(data['hourly']['data']) > 0:
-                    start_index=0
-                    i=0
-                    max_hours=12
-                    while i <= start_index + max_hours:
-                        h=data['hourly']['data'][i]
-                        when=""
-                        if not currently_found and h['time'] < now and (now - h['time'])/3600 > 0:
-                            # don't have a "now", this is in the past, isn't too old.  use it as "now"
-                            start_index=i
-                            when="now"
-                        elif currently_found and h['time'] < now:
-                            # already have a "now" and this is in the past.  move along!
-                            start_index=i
-                            i += 1
-                            continue
-                        else:
-                            # everything else, future
-                            when="+{}h".format(i-start_index)
-                        l={"when": when}
-                        # normalize the data
-                        weather = normalize_weather(h, config[source]['key_mappings'], config[source]['key_multipliers'])
-                        metric_metadata += update_metrics(weather, merge_labels(ds_labels,l))
-                        # increment counter!
-                        i += 1
-
-                    # special case, grab +0h data.
-                    l={"when": "+0h"}
-                    # normalize the data
-                    weather = normalize_weather(data['hourly']['data'][start_index], config[source]['key_mappings'], config[source]['key_multipliers'])
-                    metric_metadata += update_metrics(weather, merge_labels(ds_labels,l))
-
-                # for any cached labels that were not processed, remove the metric
-                if source in metric_metadata_cache:
-                    for mmc in metric_metadata_cache[source]:
-                        # if the cache has a value we didn't just collect we must remove the metric
-                        if mmc not in metric_metadata:
-                            key=mmc[0]
-                            labels=mmc[1]
-                            debug("removing metric.  key={}, labels={}".format(key,labels))
-                            # wipe the metric
-                            metric_set("weather_{}".format(key),None,labels)
-
-                # reset cache with what we just collected
-                metric_metadata_cache[source] = metric_metadata
-
-                utility.inc("weather_success_total", ds_labels)
-        except Exception as e:
-            # well something went bad
-            utility.inc("weather_error_total", ds_labels)
-            print(repr(e))
-            traceback.print_exc()
-            pass
-
-        # sleep for the configured time, allowing for interrupt
-        for x in range(config[source]['refresh_delay_seconds']):
-            if not STOP_THREADS:
-                time.sleep(1)
-
-
-def watch_visualcrossing(source, config):
-    global metric_metadata_cache
-
-    lat = config['location']['latitude']
-    long = config['location']['longitude']
-    api_key = config[source]['api_key']
-
-    # create labels common to all metrics
-    ds_labels={
-        "latitude": lat,
-        "longitude": long,
-        "source": source,
-    }
-
-    while not STOP_THREADS:
-        try:
-            debug("{} request".format(source))
-            today = date.today()
-            tomorrow = today + timedelta(1)
-            response = requests.get("https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/{},{}/{}/{}?unitGroup=metric&key={}".format(lat,long,today,tomorrow,api_key))
-            debug("{} response {}".format(source,str(response.status_code)))
-
-            if response.status_code != 200 or response.text is None or response.text == '':
-                debug(response.text)
-                utility.inc("weather_error_total", ds_labels)
-            else:
-                data = json.loads(response.text)
-
-                metric_metadata = []
-
-                now=time.time()
-                currently_found=False
-                if 'currentConditions' in data:
-                    currently_found=True
-                    when="now"
-                    l={"when": when}
-
-                    # datetime in currentConditions is inconsistent with aggregate data, sigh.
-                    if 'datetime' in data['currentConditions']:
-                        data['currentConditions']['datetimeStr'] = data['currentConditions']['datetime']
-                        data['currentConditions']['datetime'] = now
-                        # also adjust the 'raw' data for any multiplier
-                        if 'time' in config[source]['key_multipliers']:
-                            data['currentConditions']['datetime'] /= config[source]['key_multipliers']['time']
-
-                    weather = normalize_weather(data['currentConditions'], config[source]['key_mappings'], config[source]['key_multipliers'])
-                    metric_metadata += update_metrics(weather, merge_labels(ds_labels,l))
-
-                if 'days' in data and len(data['days']) > 0:
-                    start_index=0
-                    i=0
-                    max_hours=12
-                    # we got 2 days of data, merge the hours into a single list
-                    hours = data['days'][0]['hours'] + data['days'][1]['hours']
-                    while i <= start_index + max_hours:
-                        h=hours[i]
-                        when="+{}h".format(i-start_index)
-                        if not currently_found and h['datetimeEpoch'] < now and (now - h['datetimeEpoch'])/3600 > 0:
-                            # don't have a "now", this is in the past, isn't too old.  use it as "now"
-                            start_index=i
-                            when="now"
-                        elif currently_found and h['datetimeEpoch'] < now:
-                            # already have a "now" and this is in the past.  move along!
-                            start_index=i
-                            i += 1
-                            continue
-
-                        l={"when": when}
-                        # normalize the data
-                        weather = normalize_weather(h, config[source]['key_mappings'], config[source]['key_multipliers'])
-                        metric_metadata += update_metrics(weather, merge_labels(ds_labels,l))
-                        # increment counter!
-                        i += 1
-                    
-                    # special case, grab +0h data.
-                    l={"when": "+0h"}
-                    # normalize the data
-                    weather = normalize_weather(hours[start_index], config[source]['key_mappings'], config[source]['key_multipliers'])
-                    metric_metadata += update_metrics(weather, merge_labels(ds_labels,l))
-
-                # for any cached labels that were not processed, remove the metric
-                if source in metric_metadata_cache:
-                    for mmc in metric_metadata_cache[source]:
-                        # if the cache has a value we didn't just collect we must remove the metric
-                        if mmc not in metric_metadata:
-                            key=mmc[0]
-                            labels=mmc[1]
-                            debug("removing metric.  key={}, labels={}".format(key,labels))
-                            # wipe the metric
-                            metric_set("weather_{}".format(key),None,labels)
-
-                # reset cache with what we just collected
-                metric_metadata_cache[source] = metric_metadata
-
-                utility.inc("weather_success_total", ds_labels)
-        except Exception as e:
-            # well something went bad
-            utility.inc("weather_error_total", ds_labels)
-            print(repr(e))
-            traceback.print_exc()
-            pass
-        except KeyboardInterrupt:
-            return
-
-        # sleep for the configured time, allowing for interrupt
-        for x in range(config[source]['refresh_delay_seconds']):
-            if not STOP_THREADS:
-                time.sleep(1)
-
-def normalize_weather(raw, key_mappings, key_multipliers):
-    # start with the raw input
-    weather = {}
-
-    for raw_key in raw:
-        raw_value = raw[raw_key]
-
-        # only process a key we have a mapping for
-        if raw_key in key_mappings:
-            normalized_key = key_mappings[raw_key]
-            normalized_value = raw_value
-
-            if isinstance(raw_value, list):
-                # just pick the first element
-                normalized_value = raw_value[0]
-            if isinstance(raw_value, dict):
-                # just pick the first key
-                normalized_value = raw_value[next(iter(raw_value))]
-
-            if normalized_key in key_multipliers:
-                #debug("raw_key={}, raw_value={}, normalized_key={}, normalized_value={}, multiplier={}".format(raw_key,raw_value,normalized_key,normalized_value,key_multipliers[normalized_key]))
-                multiplier = key_multipliers[normalized_key]
-                # originally was doing date string to second conversion but
-                # the differences in python versions and the fact it isn't used.. I am dropping it
-                if isfloat(multiplier):
-                    normalized_value *= float(key_multipliers[normalized_key])
-            
-            weather[normalized_key] = normalized_value
-
-    return weather
-
-# update_metrics creates / updates metrics for normalized weather data and returns an array of [key,labels] processed
-def update_metrics(weather, base_labels):
+# update_metrics creates / updates metrics for forecast data and returns an array of [key,labels] processed
+def update_metrics(forecast, base_labels):
     output = []
 
     # process all the keys
-    for key in weather:
+    for key in forecast:
         # for simplicity, extract the value for key
-        value=weather[key]
+        value=forecast[key]["value"]
 
         # wind is split across multiple keys, use simple regex to extract it
-        m = re.match('^wind_(.*)', key)
+        m = re.match('^wind(.*)', key)
 
         # pre allocate variable l so it exists outside the loop.  it will be added to label cache
         l = {}
 
         if key=='temperature':
-            l={"type": "current", "unit": "celsius"}
+            l={"type": "current", "unit": forecast[key]["uom"]}
             try:
                 metric_set("weather_{}".format(key),value,merge_labels(base_labels,l))
             except Exception as e:
@@ -410,8 +159,8 @@ def update_metrics(weather, base_labels):
                 print(repr(e))
                 traceback.print_exc()
                 pass
-        elif key=='feels_like':
-            l={"type": "feels_like", "unit": "celsius"}
+        elif key=='apparentTemperature':
+            l={"type": "feels_like", "unit": forecast[key]["uom"]}
             key="temperature"
             try:
                 metric_set("weather_{}".format(key),value,merge_labels(base_labels,l))
@@ -421,7 +170,7 @@ def update_metrics(weather, base_labels):
                 traceback.print_exc()
                 pass
         elif key=='pressure':
-            l={"unit": "millibars"}
+            l={"unit": forecast[key]["uom"]}
             try:
                 metric_set("weather_{}".format(key),value,merge_labels(base_labels,l))
             except Exception as e:
@@ -429,8 +178,9 @@ def update_metrics(weather, base_labels):
                 print(repr(e))
                 traceback.print_exc()
                 pass
-        elif key=='humidity':
-            l={"unit": "percent"}
+        elif key=='relativeHumidity':
+            l={"unit": forecast[key]["uom"]}
+            key="humidity"
             try:
                 metric_set("weather_{}".format(key),value,merge_labels(base_labels,l))
             except Exception as e:
@@ -438,8 +188,9 @@ def update_metrics(weather, base_labels):
                 print(repr(e))
                 traceback.print_exc()
                 pass
-        elif key=='dew_point':
-            l={"unit": "celsius"}
+        elif key=='dewpoint':
+            l={"unit": forecast[key]["uom"]}
+            key="dew_point"
             try:
                 metric_set("weather_{}".format(key),value,merge_labels(base_labels,l))
             except Exception as e:
@@ -448,7 +199,7 @@ def update_metrics(weather, base_labels):
                 traceback.print_exc()
                 pass
         elif key=='visibility':
-            l={"unit": "meters"}
+            l={"unit": forecast[key]["uom"]}
             try:
                 metric_set("weather_{}".format(key),value,merge_labels(base_labels,l))
             except Exception as e:
@@ -456,8 +207,9 @@ def update_metrics(weather, base_labels):
                 print(repr(e))
                 traceback.print_exc()
                 pass
-        elif key=='clouds':
-            l={"unit": "percent"}
+        elif key=='skyCover':
+            l={"unit": forecast[key]["uom"]}
+            key="clouds"
             try:
                 metric_set("weather_{}".format(key),value,merge_labels(base_labels,l))
             except Exception as e:
@@ -465,18 +217,9 @@ def update_metrics(weather, base_labels):
                 print(repr(e))
                 traceback.print_exc()
                 pass
-        elif key=='time':
-            l={"type": "current", "unit": "second"}
-            try:
-                # don't use wrapper function 'metric_set'
-                utility.set("weather_{}".format(key),int(value),merge_labels(base_labels,l))
-            except Exception as e:
-                # well something went bad, print and continue.
-                print(repr(e))
-                traceback.print_exc()
-                pass
-        elif key=='precip_probability':
-            l={"unit": "percent"}
+        elif key=='probabilityOfPrecipitation':
+            l={"unit": forecast[key]["uom"]}
+            key='precip_probability'
             try:
                 metric_set("weather_{}".format(key),value,merge_labels(base_labels,l))
             except Exception as e:
@@ -484,8 +227,9 @@ def update_metrics(weather, base_labels):
                 print(repr(e))
                 traceback.print_exc()
                 pass
-        elif key=='precip_intensity':
-            l={"unit": "mm"}
+        elif key=='quantitativePrecipitation':
+            l={"unit": forecast[key]["uom"]}
+            key='precip_intensity'
             try:
                 metric_set("weather_{}".format(key),value,merge_labels(base_labels,l))
             except Exception as e:
@@ -494,12 +238,12 @@ def update_metrics(weather, base_labels):
                 traceback.print_exc()
                 pass
         elif m:
+            unit=forecast[key]["uom"]
             key="wind"
             t=m.groups()[0].lower()
-            unit="kph"
-            if t=='direction':
-                unit="degree"
-            l={"type": t, "unit": unit}
+            if t=='Direction':
+                unit="degree" # why did I pick singular?
+            l={"type": t.lower(), "unit": unit}
             try:
                 metric_set("weather_{}".format(key),value,merge_labels(base_labels,l))
             except Exception as e:
@@ -518,22 +262,22 @@ def update_metrics(weather, base_labels):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Export logs as prometheus metrics.")
-    parser.add_argument("--port", type=int, help="port to expose metrics on")
-    parser.add_argument("--config", type=str, help="configuraiton file")
+    parser.add_argument("--config", type=str, help="configuraiton file", default="config.yaml")
     
     args = parser.parse_args()
-    
-    # Start up the server to expose the metrics.
-    utility.metrics(args.port)
 
     config = {}
     with open(args.config, 'r') as f:
         config = yaml.load(f)
+
+    # Start up the server to expose the metrics.
+    utility.metrics(config["metrics"]["port"])
+
     
     # start threads to watch each source
     threads = []
     for source in config['sources']:
-        watch_source = locals()["watch_{}".format(source)]
+        watch_source = locals()["watch_weather_source"]
         t = Thread(target=watch_source, args=(source, config))
         t.start()
         threads.append(t)
