@@ -12,8 +12,7 @@ from datetime import date, timedelta, datetime
 
 import httpimport
 
-with httpimport.github_repo('jewzaam', 'metrics-utility', 'utility', 'main'):
-    import utility
+import utility
 
 # cache metadata for metrics.  it's an array of tuples, each tuple being [string,dictionary] representing metric name and labels (no value)
 metric_metadata_cache = {}
