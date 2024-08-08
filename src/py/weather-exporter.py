@@ -139,6 +139,9 @@ def update_metrics(forecast, base_labels):
     # process all the keys
     for key in forecast:
         # for simplicity, extract the value for key
+        if not isinstance(forecast[key], dict):
+            # probably is "dt" which is not an object
+            continue
         value=forecast[key]["value"]
 
         # wind is split across multiple keys, use simple regex to extract it
