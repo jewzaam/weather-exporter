@@ -85,17 +85,19 @@ def watch_weather_source(source, config):
                         if i > max_hours:
                             # got enough data, done
                             break
-                        dt=datetime.fromisoformat(key.replace("Z", "+00:00")).timestamp()
-                        if not found_now and dt <= now and (now - dt)/3600 > 0:
+
+                        datum=forecast["data"][key]
+
+                        dt=datum["dt"]#datetime.fromisoformat(key.replace("Z", "+00:00")).timestamp()
+                        if not found_now and dt <= now and (now - dt) < 3600:
                             # this is in the past, isn't too old.  use it as "now"
+                            print(f"key={key}, dt={dt}, now={now}, diff={(now - dt)/3600}, source={source}")
                             when="now"
                             found_now=True
                         elif found_now:
                             # we have found "now" and can increment.
                             when=f"+{i}h"
                             i+=1
-
-                        datum=forecast["data"][key]
 
                         # update metrics
                         metric_metadata += update_metrics(datum, merge_labels(base_labels,{"when": when}))
