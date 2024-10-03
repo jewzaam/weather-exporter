@@ -344,33 +344,39 @@ if __name__ == '__main__':
                         debug(f"initial value: inactive_site_names = {inactive_site_names}")
 
                         for result in data['data']['result']:
-                            # round dynamic sites in case some might be close together (i.e. multiple mounts in one location)
-                            location_round = config['dynamic_sites']['location_round']
-                            lat = round(float(result['metric']['latitude']),location_round)
-                            long = round(float(result['metric']['longitude']),location_round)
-                            site_name = f"{DYNAMIC_SITE_PREFIX}{result['metric']['host']}"
-                            watch_source = locals()["watch_weather_source"]
-                            # def watch_weather_source(source, host, port, parameters, lat, long, site_name, refresh_frequency_seconds):
-                            host = config['service']['host']
-                            port = config['service']['port']
-                            for source in config['dynamic_sites']['sources']:
-                                source_name = source['name']
-                                refresh_frequency_seconds = source['refresh_frequency_seconds']
-                                parameters = config['sources'][source_name]['parameters']
+                            try:
+                                # round dynamic sites in case some might be close together (i.e. multiple mounts in one location)
+                                location_round = config['dynamic_sites']['location_round']
+                                lat = round(float(result['metric']['latitude']),location_round)
+                                long = round(float(result['metric']['longitude']),location_round)
+                                site_name = f"{DYNAMIC_SITE_PREFIX}{result['metric']['host']}"
+                                watch_source = locals()["watch_weather_source"]
+                                # def watch_weather_source(source, host, port, parameters, lat, long, site_name, refresh_frequency_seconds):
+                                host = config['service']['host']
+                                port = config['service']['port']
+                                for source in config['dynamic_sites']['sources']:
+                                    source_name = source['name']
+                                    refresh_frequency_seconds = source['refresh_frequency_seconds']
+                                    parameters = config['sources'][source_name]['parameters']
 
-                                dynamic_sites_cache_name = f"{site_name}.{source_name}"
+                                    dynamic_sites_cache_name = f"{site_name}.{source_name}"
 
-                                # make sure we don't delete this thread, it's active
-                                if dynamic_sites_cache_name in inactive_site_names:
-                                    inactive_site_names.remove(dynamic_sites_cache_name)
+                                    # make sure we don't delete this thread, it's active
+                                    if dynamic_sites_cache_name in inactive_site_names:
+                                        inactive_site_names.remove(dynamic_sites_cache_name)
 
-                                # only create this if it's not already tracked
-                                if dynamic_sites_cache_name not in active_site_names:
-                                    debug(f"creating dynamic site '{dynamic_sites_cache_name}'")
-                                    # NOTE thread will register self as active, no need to manually do that here
-                                    t = Thread(target=watch_source, args=(source_name, host, port, parameters, lat, long, site_name, refresh_frequency_seconds))
-                                    t.start()
-                                    threads.append(t)
+                                    # only create this if it's not already tracked
+                                    if dynamic_sites_cache_name not in active_site_names:
+                                        debug(f"creating dynamic site '{dynamic_sites_cache_name}'")
+                                        # NOTE thread will register self as active, no need to manually do that here
+                                        t = Thread(target=watch_source, args=(source_name, host, port, parameters, lat, long, site_name, refresh_frequency_seconds))
+                                        t.start()
+                                        threads.append(t)
+                            except Exception as e:
+                                # something went wrong. just continue.
+                                print("EXCEPTION")
+                                print(e)
+                                pass
             
                         # remove any dynamic sites that are no longer active
                         debug(f"active_site_names = {active_site_names}")
