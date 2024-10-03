@@ -30,10 +30,14 @@ pip install -r requirements.txt --user
 You can name the file whatever you want, but this document assumes **config.yaml**.
 
 An example configuration is included here with some fields redacted.  Please supply your values for:
-* LATITUDE
-* LONGITUDE
 * OPENWEATHERMAP_API_KEY
 * WEATHERGOV_AGENT
+* LATITUDE
+* LONGITUDE
+
+**OPTIONAL** For dynamic forecasts create:
+* `prometheus` - how to query for dynamic locations (based on telescope lat/long)
+* `dynamic_sites` - for what weather sources to use and other configurations
 
 ```yaml
 metrics:
@@ -41,6 +45,19 @@ metrics:
 service:
   host: "127.0.0.1"
   port: 9213
+prometheus:
+  username: ${PROMETHEUS_USERNAME}
+  password: ${PROMETHEUS_PASSWORD}
+  host: ${PROMETHEUS_HOST}
+  port: ${PROMETHEUS_PORT:9090}
+  query: alpaca_telescope_sitelatitude
+dynamic_sites:
+  location_round: 2 # round location precision to reduce number of dynamic sites
+  sources:
+  - name: weathergov
+    refresh_frequency_seconds: 300
+  - name: openweathermap
+    refresh_frequency_seconds: 300
 degrees_to_astronomical_sunrise: 20
 degrees_to_astronomical_sunset: 20
 sources:

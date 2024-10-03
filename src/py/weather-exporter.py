@@ -9,11 +9,18 @@ from threading import Thread
 import traceback
 import copy
 from datetime import datetime
+import os
+import sys
 
 import utility
 
 # cache metadata for metrics.  it's an array of tuples, each tuple being [string,dictionary] representing metric name and labels (no value)
 metric_metadata_cache = {}
+
+# active_site_names: array of site names for which threads should be active (checked by each instance of watch_weather_source)
+active_site_names = []
+
+DYNAMIC_SITE_PREFIX = "dynamic_site."
 
 DEBUG=True
 
@@ -56,8 +63,18 @@ def watch_weather_source(source, host, port, parameters, lat, long, site_name, r
 
     base_url = f"http://{host}:{port}"
 
+    # register self as an active thread, someone else can remove it later if needed
+    thread_name = f"{site_name}.{source_name}"
+    active_site_names.append(thread_name)
+
     while not STOP_THREADS:
         try:
+            # check if still in active list
+            if thread_name not in active_site_names:
+                # no longer active, exit thread
+                debug(f"Thread for site '{thread_name}' no longer active.  Exiting thread.")
+                break
+
             debug(f"watch_weather_source request({params})")
             url=f"{base_url}/forecast/{lat}/{long}?{params}"
             response = requests.get(url)
@@ -293,13 +310,76 @@ if __name__ == '__main__':
             threads.append(t)
 
     # wait for all threads then exit
+    # watch for any dynamic sites as detected from telescope metrics
     try:
         while len(threads) > 0:
+            # still have work to do, yay
+
+            # check for (and remove) any dead threads
             for t in threads:
                 if not t.is_alive():
                     threads.remove(t)
-            time.sleep(5)
+
+            # see if there's any dynamic lat/long to export
+            if 'prometheus' in config:
+                url = f"https://{config['prometheus']['host']}:{config['prometheus']['port']}/api/v1/query?query={config['prometheus']['query']}"
+                username = config['prometheus']['username']
+                password = config['prometheus']['password']
+                response = requests.get(url, auth=(username, password))
+                if response.status_code != 200 or response.text is None or response.text == '':
+                    debug(response.text)
+                    # going to just ignore failures for now...
+                else:
+                    data = json.loads(response.text)
+                    if 'status' in data and data['status'] == "success":
+                        # assume all dynamic sites need to be removed unless we see them active
+                        inactive_site_names = []
+                        for site in active_site_names:
+                            if site.startswith(DYNAMIC_SITE_PREFIX):
+                                inactive_site_names.append(site)
+
+                        debug(f"initial value: inactive_site_names = {inactive_site_names}")
+
+                        for result in data['data']['result']:
+                            # round dynamic sites in case some might be close together (i.e. multiple mounts in one location)
+                            location_round = config['dynamic_sites']['location_round']
+                            lat = round(float(result['metric']['latitude']),location_round)
+                            long = round(float(result['metric']['longitude']),location_round)
+                            site_name = f"{DYNAMIC_SITE_PREFIX}{result['metric']['host']}"
+                            watch_source = locals()["watch_weather_source"]
+                            # def watch_weather_source(source, host, port, parameters, lat, long, site_name, refresh_frequency_seconds):
+                            host = config['service']['host']
+                            port = config['service']['port']
+                            for source in config['dynamic_sites']['sources']:
+                                source_name = source['name']
+                                refresh_frequency_seconds = source['refresh_frequency_seconds']
+                                parameters = config['sources'][source_name]['parameters']
+
+                                dynamic_sites_cache_name = f"{site_name}.{source_name}"
+
+                                # make sure we don't delete this thread, it's active
+                                if dynamic_sites_cache_name in inactive_site_names:
+                                    inactive_site_names.remove(dynamic_sites_cache_name)
+
+                                # only create this if it's not already tracked
+                                if dynamic_sites_cache_name not in active_site_names:
+                                    debug(f"creating dynamic site '{dynamic_sites_cache_name}'")
+                                    # NOTE thread will register self as active, no need to manually do that here
+                                    t = Thread(target=watch_source, args=(source_name, host, port, parameters, lat, long, site_name, refresh_frequency_seconds))
+                                    t.start()
+                                    threads.append(t)
+            
+                        # remove any dynamic sites that are no longer active
+                        debug(f"active_site_names = {active_site_names}")
+                        debug(f"inactive_site_names = {inactive_site_names}")
+                        for i in inactive_site_names:
+                            active_site_names.remove(i)
+                        # NOTE each individual thread handles cleanup
+            
+            # sleep a while so it's not a busy wait
+            time.sleep(15)
     except KeyboardInterrupt:
+        # time to abort, set var to have all threads exit
         debug("KeyboardInterrupt! Stopping threads...")
         STOP_THREADS=True
 
