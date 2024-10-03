@@ -38,14 +38,12 @@ def merge_labels(l1, l2):
     output.update(l2)
     return output
 
-def watch_weather_source(source, config):
+def watch_weather_source(source, host, port, parameters, lat, long, site_name, refresh_frequency_seconds):
     global metric_metadata_cache
 
-    lat = config['location']['latitude']
-    long = config['location']['longitude']
     params=f"source={source}"
-    if "parameters" in config[source]:
-        for k, v in config[source]["parameters"].items():
+    if parameters:
+        for k, v in parameters.items():
             params+=f"&{k}={v}"
 
     # create labels common to all metrics
@@ -53,10 +51,9 @@ def watch_weather_source(source, config):
         "latitude": lat,
         "longitude": long,
         "source": source,
+        "site": site_name,
     }
 
-    host=config["service"]["host"]
-    port=config["service"]["port"]
     base_url = f"http://{host}:{port}"
 
     while not STOP_THREADS:
@@ -129,7 +126,7 @@ def watch_weather_source(source, config):
             pass
 
         # sleep for the configured time, allowing for interrupt
-        for x in range(config[source]['refresh_delay_seconds']):
+        for x in range(refresh_frequency_seconds):
             if not STOP_THREADS:
                 time.sleep(1)
 
@@ -274,15 +271,26 @@ if __name__ == '__main__':
 
     # Start up the server to expose the metrics.
     utility.metrics(config["metrics"]["port"])
-
     
-    # start threads to watch each source
+    # start threads to watch each site + source
     threads = []
-    for source in config['sources']:
-        watch_source = locals()["watch_weather_source"]
-        t = Thread(target=watch_source, args=(source, config))
-        t.start()
-        threads.append(t)
+    for site in config['sites']:
+        if 'sources' not in site:
+            continue
+        for source in site['sources']:
+            watch_source = locals()["watch_weather_source"]
+            # def watch_weather_source(source, host, port, parameters, lat, long, site_name, refresh_frequency_seconds):
+            source_name = source['name']
+            host = config['service']['host']
+            port = config['service']['port']
+            parameters = config['sources'][source_name]['parameters']
+            lat = site['latitude']
+            long = site['longitude']
+            site_name = site['name']
+            refresh_frequency_seconds = source['refresh_frequency_seconds']
+            t = Thread(target=watch_source, args=(source_name, host, port, parameters, lat, long, site_name, refresh_frequency_seconds))
+            t.start()
+            threads.append(t)
 
     # wait for all threads then exit
     try:
@@ -296,4 +304,4 @@ if __name__ == '__main__':
         STOP_THREADS=True
 
 # cd GitHub\weather-exporter
-# python src\py\weather-exporter.py --port 8912 --config config.yaml
+# python src\py\weather-exporter.py --config config.yaml
