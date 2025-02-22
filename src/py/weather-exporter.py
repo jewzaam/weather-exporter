@@ -145,7 +145,17 @@ def watch_weather_source(source, host, port, parameters, lat, long, site_name, r
         # sleep for the configured time, allowing for interrupt
         for x in range(refresh_frequency_seconds):
             if thread_name not in active_site_names:
-                # thread isn't active anymore, drop out of this loop and allow main loop to handle exit
+                # thread isn't active anymore
+                # first wipe metrics for this source
+                # then drop out of this loop and allow main loop to handle exit
+
+                for mmc in metric_metadata_cache[source]:
+                    key=mmc[0]
+                    labels=mmc[1]
+                    debug("removing metric.  key={}, labels={}".format(key,labels))
+                    # wipe the metric
+                    metric_set("weather_{}".format(key),None,labels)
+
                 break
             if not STOP_THREADS:
                 time.sleep(1)
