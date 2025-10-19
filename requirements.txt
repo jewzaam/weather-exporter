@@ -1,4 +1,4 @@
-metrics-utility @ git+https://github.com/jewzaam/metrics-utility.git@v0.1.0
+metrics-utility @ git+https://github.com/jewzaam/metrics-utility.git@v0.1.1
 pyyaml
 argparse
 pyjson
