@@ -12,7 +12,7 @@ from datetime import datetime
 import os
 import sys
 
-import utility
+import metrics_utility
 
 # cache metadata for metrics.  it's an array of tuples, each tuple being [string,dictionary] representing metric name and labels (no value)
 metric_metadata_cache = {}
@@ -37,7 +37,7 @@ def metric_set(metric_name, metric_value, metric_labels):
     # sources.  So, don't update in that case..
     #debug("metric_name={}, metric_value={}, metric_labels={}".format(metric_name, metric_value, metric_labels))
     if metric_value is not None:
-        utility.set(metric_name, metric_value, metric_labels)
+        metrics_utility.set(metric_name, metric_value, metric_labels)
 
 def merge_labels(l1, l2):
     # dict.update is doing something weird so created this to ensure a deep copy
@@ -82,7 +82,7 @@ def watch_weather_source(source, host, port, parameters, lat, long, site_name, r
 
             if response.status_code != 200 or response.text is None or response.text == '':
                 debug(response.text)
-                utility.inc("weather_error_total")
+                metrics_utility.inc("weather_error_total", {})
             else:
                 forecast = json.loads(response.text)
 
@@ -134,10 +134,10 @@ def watch_weather_source(source, host, port, parameters, lat, long, site_name, r
                 # reset cache with what we just collected
                 metric_metadata_cache[source] = metric_metadata
 
-                utility.inc("weather_success_total", base_labels)
+                metrics_utility.inc("weather_success_total", base_labels)
         except Exception as e:
             # well something went bad
-            utility.inc("weather_error_total", base_labels)
+            metrics_utility.inc("weather_error_total", base_labels)
             print(repr(e))
             traceback.print_exc()
             pass
@@ -300,7 +300,7 @@ if __name__ == '__main__':
         config = yaml.safe_load(f)
 
     # Start up the server to expose the metrics.
-    utility.metrics(config["metrics"]["port"])
+    metrics_utility.metrics(config["metrics"]["port"])
     
     # start threads to watch each site + source
     threads = []

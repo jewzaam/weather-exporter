@@ -1,4 +1,4 @@
-prometheus-client
+metrics-utility @ git+https://github.com/jewzaam/metrics-utility.git@v0.1.0
 pyyaml
 argparse
 pyjson
