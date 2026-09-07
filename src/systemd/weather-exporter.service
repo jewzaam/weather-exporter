@@ -9,7 +9,7 @@ User=$USER
 Restart=on-failure
 RestartSec=5s
 WorkingDirectory=$REPO_BASE_DIR
-ExecStart=$PYTHON $REPO_BASE_DIR/src/py/weather-exporter.py --config $CONFIG
+ExecStart=$PYTHON -m weather_exporter --config $CONFIG
 
 [Install]
 WantedBy=multi-user.target

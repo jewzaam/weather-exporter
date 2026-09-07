@@ -1,0 +1,5 @@
+# Repo is edited on Windows and executed on Linux (container + systemd). CRLF in
+# a Makefile or .mk breaks the recipe shell, so pin these to LF.
+*.mk     text eol=lf
+Makefile text eol=lf
+*.sh     text eol=lf
