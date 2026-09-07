@@ -1,2 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Virtualenv
+.venv/
+
+# Testing
+.pytest_cache/
+.coverage
+
+# Every yaml, not just config.yaml: the local config carries API keys, and a
+# variant name (config-home.yaml) must not become trackable by accident.
 *.yaml
-__pycache__

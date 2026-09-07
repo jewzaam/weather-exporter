@@ -22,8 +22,11 @@ git clone https://github.com/jewzaam/weather-exporter
 ## Python requirements
 
 ```shell
-pip install -r requirements.txt --user
+make install-dev
 ```
+
+Creates `.venv` and installs the package plus dev extras from `pyproject.toml`.
+`git` is required because `metrics-utility` is a VCS dependency.
 
 ## config.yaml
 
@@ -62,10 +65,10 @@ degrees_to_astronomical_sunrise: 20
 degrees_to_astronomical_sunset: 20
 sources:
   openweathermap:
-    parameters: # passed to the weather api as query params
+    parameters: # passed to weather-service as query params, except `apikey`
       apikey: ${OPENWEATHERMAP_API_KEY}
   weathergov:
-    parameters: # passed to the weather api as query params
+    parameters: # passed to weather-service as query params
       agent: ${WEATHERGOV_AGENT}
 sites:
   - name: Main Site
@@ -77,6 +80,20 @@ sites:
       - name: weathergov
         refresh_frequency_seconds: 300 # just match openweathermap
 ```
+
+### Environment
+
+`${...}` placeholders in the config file are expanded from the environment at
+startup, so secrets stay out of the file (and out of a Kubernetes ConfigMap).
+
+| Env var | Purpose |
+|---------|---------|
+| `WEATHER_API_KEY` | gate key sent as `X-Api-Key` on every weather-service call. Required — weather-service fails closed and 401s without it |
+| `OPENWEATHERMAP_API_KEY` | caller's OpenWeatherMap key. Sent as the `X-OpenWeatherMap-Key` header, never in the URL |
+| `WEATHERGOV_AGENT` | contact address weather.gov asks callers to identify themselves with |
+
+An unset variable is left literal rather than blanked, so the upstream call
+fails loudly instead of silently querying with an empty key.
 
 ### Config Details
 
@@ -115,6 +132,22 @@ They want an email address or website I think so they can contact you if needed.
 
 # Installation
 
+## Container
+
+```shell
+make build-image                                  # weather-exporter:<pyproject version>
+make run-image WEATHER_API_KEY=... CONFIG_FILE=config.yaml
+make push-image                                   # :<version> and :latest to ghcr.io/jewzaam
+```
+
+`build-image` uses docker, falling back to podman. `push-image` needs a classic
+PAT with `write:packages`:
+`echo "$GHCR_PAT" | podman login ghcr.io -u jewzaam --password-stdin`.
+
+The image reads its config from `/etc/weather-exporter/config.yaml` (mount it)
+and exposes metrics on `8011`. Deployed to k3s by
+[`jewzaam/setup-k3s`](https://github.com/jewzaam/setup-k3s) under `gitops/apps/weather/`.
+
 ## Linux Service
 
 Install the service by setting up some env vars then copying the systemd template with those vars, start the service, and enable the service.
@@ -142,3 +175,23 @@ sudo systemctl enable weather-exporter.service
 
 ## Metrics 
 Check the metrics are exported on the port you specified.
+
+# Develop
+
+```shell
+make check   # format check, lint, tests, coverage (default target)
+make format  # auto-format with black
+make help    # list every target
+```
+
+## Tests
+
+| File | Pins |
+|------|------|
+| `tests/test_update_metrics.py` | the forecast-key to metric-name-and-label mapping, which is the whole behaviour of `update_metrics` |
+| `tests/test_watch_weather_source.py` | how the exporter calls weather-service: gate key header, upstream key kept out of the URL, request timeout, thread naming, per-site metric caches |
+| `tests/test_main.py` | config to thread wiring, `${...}` expansion, and that `python -m weather_exporter` still resolves |
+| `tests/test_dynamic_sites.py` | the Prometheus-driven dynamic site loop: spawn once per host, drop hosts that stopped reporting, survive a failed query |
+
+Every assertion in `test_watch_weather_source.py` failed against the code as it
+stood before 2026-09-07, and none of those breakages were visible in the metrics.
