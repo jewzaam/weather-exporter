@@ -64,7 +64,7 @@ def watch_weather_source(source, host, port, parameters, lat, long, site_name, r
     base_url = f"http://{host}:{port}"
 
     # register self as an active thread, someone else can remove it later if needed
-    thread_name = f"{site_name}.{source_name}"
+    thread_name = f"{site_name}.{source}"
     active_site_names.append(thread_name)
 
     while not STOP_THREADS:
@@ -77,12 +77,19 @@ def watch_weather_source(source, host, port, parameters, lat, long, site_name, r
 
             debug(f"watch_weather_source request({params})")
             url=f"{base_url}/forecast/{lat}/{long}?{params}"
-            response = requests.get(url)
+            # timeout: without it a wedged upstream parks this thread forever and
+            # the site's metrics silently freeze at their last value.
+            response = requests.get(url, timeout=30)
             debug(f"watch_weather_source response({params}) " + str(response.status_code))
 
             if response.status_code != 200 or response.text is None or response.text == '':
                 debug(response.text)
-                metrics_utility.inc("weather_error_total", {})
+                # base_labels, not {}: prometheus_client fixes a counter's label
+                # set at first registration. Whichever of these two call sites
+                # fired first used to define it, and the other then raised
+                # "Incorrect label count" — inside the except handler below,
+                # where nothing catches it, killing the thread for good.
+                metrics_utility.inc("weather_error_total", base_labels)
             else:
                 forecast = json.loads(response.text)
 
@@ -120,9 +127,11 @@ def watch_weather_source(source, host, port, parameters, lat, long, site_name, r
                             # special case, also create +0h data.
                             metric_metadata += update_metrics(datum, merge_labels(base_labels,{"when": "+0h"}))
 
-                # for any cached labels that were not processed, remove the metric
-                if source in metric_metadata_cache:
-                    for mmc in metric_metadata_cache[source]:
+                # for any cached labels that were not processed, remove the metric.
+                # keyed by thread_name, not source: two sites sharing one source
+                # would otherwise overwrite each other's cache and wipe live metrics.
+                if thread_name in metric_metadata_cache:
+                    for mmc in metric_metadata_cache[thread_name]:
                         # if the cache has a value we didn't just collect we must remove the metric
                         if mmc not in metric_metadata:
                             key=mmc[0]
@@ -132,7 +141,7 @@ def watch_weather_source(source, host, port, parameters, lat, long, site_name, r
                             metric_set("weather_{}".format(key),None,labels)
 
                 # reset cache with what we just collected
-                metric_metadata_cache[source] = metric_metadata
+                metric_metadata_cache[thread_name] = metric_metadata
 
                 metrics_utility.inc("weather_success_total", base_labels)
         except Exception as e:
@@ -149,7 +158,9 @@ def watch_weather_source(source, host, port, parameters, lat, long, site_name, r
                 # first wipe metrics for this source
                 # then drop out of this loop and allow main loop to handle exit
 
-                for mmc in metric_metadata_cache[source]:
+                # .get(): a thread deactivated before its first successful fetch
+                # has no cache entry, and a KeyError here would kill the exit path.
+                for mmc in metric_metadata_cache.get(thread_name, []):
                     key=mmc[0]
                     labels=mmc[1]
                     debug("removing metric.  key={}, labels={}".format(key,labels))
