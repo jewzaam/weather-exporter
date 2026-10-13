@@ -15,3 +15,6 @@ dist/
 # Every yaml, not just config.yaml: the local config carries API keys, and a
 # variant name (config-home.yaml) must not become trackable by accident.
 *.yaml
+
+# systemd EnvironmentFile with the API keys; weather-exporter.env.example is the template
+weather-exporter.env

@@ -152,11 +152,26 @@ and exposes metrics on `8011`. Deployed to k3s by
 
 Install the service by setting up some env vars then copying the systemd template with those vars, start the service, and enable the service.
 
+`PYTHON` must be an interpreter that has the dependencies installed (`make install`
+puts them in `.venv`, so `PYTHON=$REPO_BASE_DIR/.venv/bin/python`). The unit runs
+`python -m weather_exporter` from `$REPO_BASE_DIR`, so the package itself resolves
+from the working directory.
+
+The secrets from [Environment](#environment) go in `$REPO_BASE_DIR/weather-exporter.env`
+(gitignored), which the unit loads with `EnvironmentFile=`. The unit refuses to
+start if the file is missing.
+
+```shell
+cp weather-exporter.env.example weather-exporter.env
+chmod 600 weather-exporter.env
+# fill in the values
+```
+
 ```shell
 export REPO_BASE_DIR=~/weather-exporter
 export PORT=8011
 export CONFIG=$REPO_BASE_DIR/config.yaml
-export PYTHON=$(which python)
+export PYTHON=$REPO_BASE_DIR/.venv/bin/python
 
 cat $REPO_BASE_DIR/src/systemd/weather-exporter.service | envsubst > /tmp/weather-exporter.service
 sudo mv /tmp/weather-exporter.service /etc/systemd/system/weather-exporter.service
@@ -170,6 +185,13 @@ sudo systemctl daemon-reload
 sudo systemctl start weather-exporter.service
 sudo systemctl enable weather-exporter.service
 ```
+
+### Upgrading a unit from before 2026-09-07
+
+1. `ExecStart`: `src/py/weather-exporter.py` no longer exists. Run `-m weather_exporter` instead, with `WorkingDirectory` still the repo root.
+1. Interpreter: `requirements.txt` is gone. `make install PY_SYS=python3.11` (any Python >= 3.11) creates `.venv`; point `ExecStart` at `.venv/bin/python`.
+1. `WEATHER_API_KEY`: new and required. weather-service now 401s every poll without it, and the exporter only shows that as `weather_error_total` climbing. Add the `EnvironmentFile=` line from `src/systemd/weather-exporter.service`.
+1. `config.yaml`: no change required. Literal values still work; `${VAR}` placeholders are now expanded from the unit's environment, so keys can move into the env file.
 
 # Verify
 
