@@ -9,6 +9,7 @@ User=$USER
 Restart=on-failure
 RestartSec=5s
 WorkingDirectory=$REPO_BASE_DIR
+EnvironmentFile=$REPO_BASE_DIR/weather-exporter.env
 ExecStart=$PYTHON -m weather_exporter --config $CONFIG
 
 [Install]

@@ -7,7 +7,7 @@ name = "weather_exporter"
 version = "0.1.0"
 description = "Prometheus exporter for weather forecasts fronted by weather-service"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.11"
 license = {file = "LICENSE"}
 authors = []
 dependencies = [
@@ -25,7 +25,7 @@ dev = [
 ]
 
 [tool.black]
-target-version = ["py314"]
+target-version = ["py311"]
 
 [tool.setuptools.packages.find]
 where = ["."]
